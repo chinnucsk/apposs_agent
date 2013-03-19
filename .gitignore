@@ -8,3 +8,4 @@ logs/*
 .eunit
 */*.swp
 tags
+.erlang
