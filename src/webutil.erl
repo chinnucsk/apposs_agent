@@ -107,7 +107,7 @@ try_func(F,N) ->
     X -> X
   end.
 
-http_response(Url, Params, F,{ok, {{_Version, 200, _ReasonPhrase}, _Headers, Body}}) ->
+http_response(_Url, _Params, F,{ok, {{_Version, 200, _ReasonPhrase}, _Headers, Body}}) ->
   %% error_logger:info_msg("http req: ~p(~p)~nresp: ~p~n", [Url, Params, Body]),
   {ok, F(Body)};
 http_response(Url, Params, _F,{ok, {{_Version, Status, ReasonPhrase}, _Headers, Body}}) ->
