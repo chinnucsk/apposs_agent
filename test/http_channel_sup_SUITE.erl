@@ -167,14 +167,14 @@ test_http_channel_sup(_Config) ->
   http_channel_sup:start_link(),
   [] = supervisor:which_children(http_channel_sup),
   http_channel_sup:start_child(default),
-  [{undefined, _, worker, [webutil]}] = supervisor:which_children(http_channel_sup),
-  {ok, _} = webutil:http_get(default, "http://www.baidu.com"),
+  [{undefined, _, worker, [web]}] = supervisor:which_children(http_channel_sup),
+  {ok, _} = web:http_get(default, "http://www.baidu.com"),
 
   http_channel_sup:start_child(profile1),
-  {ok, _} = webutil:http_get(profile1, "http://www.baidu.com"),
+  {ok, _} = web:http_get(profile1, "http://www.baidu.com"),
 
   % 一个不存在的profile
-  try webutil:http_get(profile2, "http://www.baidu.com") of
+  try web:http_get(profile2, "http://www.baidu.com") of
     _ -> throw("No this profile: profile2, should throw exception.")
   catch
     exit:_ -> ok

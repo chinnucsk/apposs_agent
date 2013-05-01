@@ -56,7 +56,7 @@ run(BaseUrl, Params)->
 
 get_cmds(BaseUrl, Params) ->
   Url = BaseUrl ++ "/api/commands",
-  case webutil:http_get(puller, Url, Params, 
+  case web:http_get(puller, Url, Params, 
       fun(E) ->
         analyse_cmds(E)
       end
@@ -89,7 +89,7 @@ analyse_cmds(Cmds) ->
 
 create_clients(BaseUrl, Cmds) ->
   F = fun(Host) ->
-    X = webutil:http_get(
+    X = web:http_get(
       puller,
       BaseUrl ++ "/api/load_hosts",
       [{hosts, Host}],
