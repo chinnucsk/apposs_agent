@@ -7,7 +7,7 @@ start_link(Delay_time) ->
 
 init([Delay_time]) ->
   % 所有的puller共用一个http通道
-  http_channel_sup:start_child(puller),
+  web_sup:start_child(puller),
   ProcessSpec = {
     puller,
     {puller,start_link,[Delay_time]},

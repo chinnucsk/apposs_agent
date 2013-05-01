@@ -4,8 +4,8 @@
 run_caller_test() ->
   simple_http_server:start(3333),
   inets:start(),
-  http_channel_sup:start_link(),
-  http_channel_sup:start_child(profile_responder),
+  web_sup:start_link(),
+  web_sup:start_child(profile_responder),
   responder:start_link("http://localhost:3333"),
   RunCaller = responder:run_caller(profile_responder),
   ?assertMatch({ok, ""}, RunCaller("localhost", {"echo hello", 1})),

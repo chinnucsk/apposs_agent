@@ -1,4 +1,4 @@
--module(http_channel_sup).
+-module(web_sup).
 -behaviour(supervisor).
 -export([start_link/0, start_child/1, init/1]).
 

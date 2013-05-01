@@ -14,7 +14,7 @@ start_link(BaseUrl) ->
 init([BaseUrl]) ->
   error_logger:info_msg("~p init, BasrUrl = ~p~n", [?MODULE, BaseUrl]),
   % responder使用一个http通道
-  % http_channel_sup:start_child(responder),
+  % web_sup:start_child(responder),
   {ok, BaseUrl}.
 
 run_caller(Profile) ->

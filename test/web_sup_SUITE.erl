@@ -1,6 +1,6 @@
-%% common_test suite for http_channel_sup
+%% common_test suite for web_sup
 
--module(http_channel_sup_SUITE).
+-module(web_sup_SUITE).
 -include_lib("common_test/include/ct.hrl").
 
 -compile(export_all).
@@ -160,17 +160,17 @@ init_per_testcase(TestCase, Config) ->
 end_per_testcase(TestCase, Config) ->
     Config.
 
-test_http_channel_sup() ->
-    [{userdata,[{doc,"Testing the http_channel_sup module"}]}].
+test_web_sup() ->
+    [{userdata,[{doc,"Testing the web_sup module"}]}].
 
-test_http_channel_sup(_Config) ->
-  http_channel_sup:start_link(),
-  [] = supervisor:which_children(http_channel_sup),
-  http_channel_sup:start_child(default),
-  [{undefined, _, worker, [web]}] = supervisor:which_children(http_channel_sup),
+test_web_sup(_Config) ->
+  web_sup:start_link(),
+  [] = supervisor:which_children(web_sup),
+  web_sup:start_child(default),
+  [{undefined, _, worker, [web]}] = supervisor:which_children(web_sup),
   {ok, _} = web:http_get(default, "http://www.baidu.com"),
 
-  http_channel_sup:start_child(profile1),
+  web_sup:start_child(profile1),
   {ok, _} = web:http_get(profile1, "http://www.baidu.com"),
 
   % 一个不存在的profile
