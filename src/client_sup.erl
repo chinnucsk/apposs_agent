@@ -1,4 +1,4 @@
--module(conn_sup).
+-module(client_sup).
 -behaviour(supervisor).
 -export([start_link/0, start_child_if_not_exist/2, init/1]).
 

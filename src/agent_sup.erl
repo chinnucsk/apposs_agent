@@ -48,6 +48,6 @@ stop() ->
 init([Center_url, Pull_delay]) ->
   HttpChannelSup = ?CHILD(web_sup, supervisor, start_link, []),
   Responder = ?CHILD(responder, worker, start_link, [Center_url]),
-  ConnSup = ?CHILD(conn_sup, supervisor, start_link, []),
+  ConnSup = ?CHILD(client_sup, supervisor, start_link, []),
   PullerSup = ?CHILD(puller_sup, supervisor, start_link, [Pull_delay]),
   {ok, { {one_for_one, 3, 30}, [HttpChannelSup, Responder,ConnSup,PullerSup]} }.

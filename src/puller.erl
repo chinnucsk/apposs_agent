@@ -111,7 +111,7 @@ create_clients(BaseUrl, Cmds) ->
   end,
   lists:foreach(
     fun({Host, _, _}) ->
-      conn_sup:start_child_if_not_exist(Host, F)
+      client_sup:start_child_if_not_exist(Host, F)
     end,
     Cmds
   ). 
