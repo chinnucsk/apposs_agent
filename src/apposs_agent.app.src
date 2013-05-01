@@ -9,7 +9,6 @@
                  ]},
   {mod, { agent_app, []}},
   {env, [
-         {responder_mod, responder},
          {pull_delay, 500}
         ]}
  ]}.

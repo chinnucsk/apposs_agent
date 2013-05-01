@@ -1,9 +1,9 @@
 -module(conn_sup).
 -behaviour(supervisor).
--export([start_link/1, start_child_if_not_exist/2, init/1]).
+-export([start_link/0, start_child_if_not_exist/2, init/1]).
 
-start_link(Responder_mod) ->
-  supervisor:start_link({local, ?MODULE}, ?MODULE, [Responder_mod]).
+start_link() ->
+  supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 start_child_if_not_exist(Host, GetHostInfoFun) ->
   case client:check_host(Host) of
@@ -12,10 +12,10 @@ start_child_if_not_exist(Host, GetHostInfoFun) ->
     ok -> ok
   end.
 
-init([Responder_mod]) ->
+init([]) ->
   ProcessSpec = {
     client,
-    {client,start_link,[Responder_mod]},
+    {client,start_link,[]},
     transient,
     2000,
     worker,
