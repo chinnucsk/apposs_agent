@@ -2,7 +2,7 @@
 -module(puller).
 -behaviour(gen_server).
 -export([start_link/3,init/1,handle_call/3,handle_cast/2,handle_info/2]).
--export([code_change/3,terminate/2]).
+-export([code_change/3,terminate/2,dispatch/3]).
 -define(POLLER_PID(RoomName), list_to_atom(string:concat("puller:", RoomName))).
 
 -ifdef(TEST).
@@ -120,5 +120,24 @@ create_clients(BaseUrl, Cmds) ->
 dispatch_cmd(Cmds) ->
   lists:foreach(
     fun({Host, Command, Oid}) ->
-        dispatcher:dispatch(Host, Command, Oid)
+        dispatch(Host, Command, Oid)
     end, Cmds).
+
+dispatch(Host,"machine|pause"=Cmd,Oid) ->
+  client:pause(Host),
+  (responder:cb_caller(puller))(Host, {Cmd, Oid},{true, "done"});
+dispatch(Host,"machine|reset"=Cmd,Oid) ->
+  client:reset(Host),
+  (responder:cb_caller(puller))(Host, {Cmd, Oid},{true, "done"});
+dispatch(Host,"machine|interrupt"=Cmd,Oid) ->
+  client:interrupt(Host),
+  (responder:cb_caller(puller))(Host, {Cmd, Oid},{true, "done"});
+dispatch(Host, "machine|reconnect"=Cmd, Oid) ->
+  client:reconnect(Host),
+  (responder:cb_caller(puller))(Host, {Cmd, Oid},{true, "done"});
+dispatch(Host,"machine|clean_all",Oid) ->
+  client:clean_cmds(Host),
+  (responder:cb_caller(puller))(Host, {"machine|clean_all", Oid},{true, "done"});
+dispatch(Host,Cmd,Oid) ->
+  client:add_cmd(Host, {Cmd, Oid}).
+
