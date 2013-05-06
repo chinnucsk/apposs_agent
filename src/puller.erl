@@ -120,24 +120,24 @@ create_clients(BaseUrl, Cmds) ->
 dispatch_cmd(Cmds) ->
   lists:foreach(
     fun({Host, Command, Oid}) ->
-        dispatch(Host, Command, Oid)
+        dispatch(Host, Command, Oid),
+        Prefix = lists:sublist(Command, 1, 8),
+        if
+          Prefix =="machine|" ->
+            (responder:cb_caller(puller))(Host, {Command, Oid},{true, "done"})
+        end
     end, Cmds).
 
 dispatch(Host,"machine|pause"=Cmd,Oid) ->
-  client:pause(Host),
-  (responder:cb_caller(puller))(Host, {Cmd, Oid},{true, "done"});
+  client:pause(Host);
 dispatch(Host,"machine|reset"=Cmd,Oid) ->
-  client:reset(Host),
-  (responder:cb_caller(puller))(Host, {Cmd, Oid},{true, "done"});
+  client:reset(Host);
 dispatch(Host,"machine|interrupt"=Cmd,Oid) ->
-  client:interrupt(Host),
-  (responder:cb_caller(puller))(Host, {Cmd, Oid},{true, "done"});
-dispatch(Host, "machine|reconnect"=Cmd, Oid) ->
-  client:reconnect(Host),
-  (responder:cb_caller(puller))(Host, {Cmd, Oid},{true, "done"});
-dispatch(Host,"machine|clean_all",Oid) ->
-  client:clean_cmds(Host),
-  (responder:cb_caller(puller))(Host, {"machine|clean_all", Oid},{true, "done"});
+  client:interrupt(Host);
+dispatch(Host,"machine|reconnect"=Cmd, Oid) ->
+  client:reconnect(Host);
+dispatch(Host,"machine|clean_all"=Cmd,Oid) ->
+  client:clean_cmds(Host);
 dispatch(Host,Cmd,Oid) ->
   client:add_cmd(Host, {Cmd, Oid}).
 
