@@ -120,12 +120,10 @@ create_clients(BaseUrl, Cmds) ->
 dispatch_cmd(Cmds) ->
   lists:foreach(
     fun({Host, Command, Oid}) ->
-        dispatch(Host, Command, Oid),
-        Prefix = lists:sublist(Command, 1, 8),
-        if
-          Prefix =="machine|" ->
+        case dispatch(Host, Command, Oid) of
+          ok -> 
             (responder:cb_caller(puller))(Host, {Command, Oid},{true, "done"});
-          true -> ok
+          _ -> ok
         end
     end, Cmds).
 
@@ -140,5 +138,6 @@ dispatch(Host,"machine|reconnect", _Oid) ->
 dispatch(Host,"machine|clean_all", _Oid) ->
   client:clean_cmds(Host);
 dispatch(Host,Cmd,Oid) ->
-  client:add_cmd(Host, {Cmd, Oid}).
+  client:add_cmd(Host, {Cmd, Oid}),
+  ignore.
 
