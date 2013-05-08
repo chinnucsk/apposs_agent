@@ -4,7 +4,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start/2, start_link/2, stop/1, reconnect/1, check_host/1, add_cmd/2, do_cmd/1, todo_cmds/1, clean_cmds/1, pause/1, interrupt/1, reset/1, get_state/1]).
+-export([start/2, start_link/2, stop/1, reconnect/1, check_host/1, add_cmd/2, do_cmd/1, clean_cmds/1, pause/1, interrupt/1, reset/1, get_state/1]).
 
 %% ------------------------------------------------------------------
 %% gen_fsm Function Exports
@@ -60,9 +60,6 @@ add_cmd(Host, Cmd) ->
 
 do_cmd(Host) ->
   gen_fsm:send_event(?SERVER(Host), do_cmd).
-
-todo_cmds(Host) ->
-  gen_fsm:sync_send_all_state_event(?SERVER(Host), todo_cmds).
 
 clean_cmds(Host) ->
   gen_fsm:send_all_state_event(?SERVER(Host), clean_cmds).
@@ -196,8 +193,6 @@ handle_event(reconnect, _StateName, #state{host=Host, exec_mod=ExecMod}=State) -
       {next_state, disconnected, State}
   end.
 
-handle_sync_event(todo_cmds, _From, StateName, #state{cmds=Cmds}=State) ->
-  {reply, Cmds, StateName, State};
 handle_sync_event(get_state, _From, StateName, State) ->
   {reply, StateName, StateName, State};
 handle_sync_event(stop, _From, _StateName, #state{host=Host}=State) ->
