@@ -124,19 +124,20 @@ dispatch_cmd(Cmds) ->
         Prefix = lists:sublist(Command, 1, 8),
         if
           Prefix =="machine|" ->
-            (responder:cb_caller(puller))(Host, {Command, Oid},{true, "done"})
+            (responder:cb_caller(puller))(Host, {Command, Oid},{true, "done"});
+          true -> ok
         end
     end, Cmds).
 
-dispatch(Host,"machine|pause"=Cmd,Oid) ->
+dispatch(Host,"machine|pause", _Oid) ->
   client:pause(Host);
-dispatch(Host,"machine|reset"=Cmd,Oid) ->
+dispatch(Host,"machine|reset", _Oid) ->
   client:reset(Host);
-dispatch(Host,"machine|interrupt"=Cmd,Oid) ->
+dispatch(Host,"machine|interrupt", _Oid) ->
   client:interrupt(Host);
-dispatch(Host,"machine|reconnect"=Cmd, Oid) ->
+dispatch(Host,"machine|reconnect", _Oid) ->
   client:reconnect(Host);
-dispatch(Host,"machine|clean_all"=Cmd,Oid) ->
+dispatch(Host,"machine|clean_all", _Oid) ->
   client:clean_cmds(Host);
 dispatch(Host,Cmd,Oid) ->
   client:add_cmd(Host, {Cmd, Oid}).
