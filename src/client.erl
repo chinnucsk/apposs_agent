@@ -10,7 +10,7 @@
 %% gen_fsm Function Exports
 %% ------------------------------------------------------------------
 
--export([init/1, disconnected/2, normal/2, run/2, paused/2, handle_event/3,
+-export([init/1, disconnected/2, connecting/2, normal/2, run/2, paused/2, handle_event/3,
          handle_sync_event/4, handle_info/3, terminate/3,
          code_change/4]).
 
@@ -88,12 +88,48 @@ init([Host, GetHostInfoFun]) ->
                  cmds = Cmds
                 },
   error_logger:info_msg("machine init: ~p~n", [Host]),
-  gen_fsm:send_all_state_event(?SERVER(Host), reconnect),
-  {ok, disconnected, State}.
+  gen_fsm:send_event(?SERVER(Host), connect),
+  {ok, connecting, State}.
 
+disconnected(reconnect, #state{host=Host}=State) ->
+  error_logger:info_msg("machine [~p] is reconnecting~n", [Host]),
+  gen_fsm:send_event(?SERVER(Host), connect),
+  {next_state, connecting, State};
 disconnected(Event, #state{host=Host}=State) ->
   error_logger:info_msg("machine [~p] disconnected, ignore ~p~n", [Host, Event]),
   {next_state, disconnected, State}.
+
+connecting(connect, #state{host=Host, exec_mod=ExecMod}=State) ->
+  error_logger:info_msg("machine [~p] connect...~n", [Host]),
+  case State#state.cm of
+    undefined -> ok;
+    OldCm -> ExecMod:terminate(OldCm)
+  end,
+  case create_connection_manager(Host, State#state.get_host_info_fun) of
+    {ok, Cm, ExecMod, Params} ->
+      NextState = case proplists:get_value(state, Params) of
+        undefined -> 
+          normal;
+        "disconnected" -> 
+          % 如果machine当前为disconnected state,
+          (responder:machine_on_caller(client))(Host, reset),
+          do_cmd(Host),
+          normal;
+        InnerState -> 
+          list_to_atom(InnerState)
+      end,
+      error_logger:info_msg("machine [~p] state: ~p - ~p~n", [Host, State, NextState]),
+      {next_state, NextState, State#state{cm=Cm, conn_params=Params, exec_mod=ExecMod}};
+    {error, Why} ->
+      error_logger:error_msg("machine [~p] connect error: ~p~n", [Host, Why]),
+      (responder:machine_on_caller(client))(Host, disconnect),
+      %% 连接失败后进程依然保留，以便可以忽略后续指令
+      {next_state, disconnected, State}
+  end;
+connecting(connect, State) ->
+  error_logger:info_msg("connecting... ~p~n", [State]),
+  {next_state, disconnected, State}.
+
 
 normal(do_cmd, #state{host=Host, cmds=[]}=State) ->
   error_logger:info_msg("machine [~p] do_cmd, normal -> normal, cmds=[]~n", [Host]),
@@ -154,6 +190,10 @@ paused(Event, #state{host=Host}=State) ->
 %state_name(_Event, _From, State) ->
 %    {reply, ok, state_name, State}.
 
+handle_event({add_cmd, Cmd}, disconnected, #state{host=Host}=State) ->
+  error_logger:info_msg("machine [~p] disconnected, ignore add", [Host]),
+  (responder:cb_caller(client))(Host, Cmd, {false, "not connected"}),
+  {next_state, disconnected, State};
 handle_event({add_cmd, Cmd}, StateName, #state{host=Host, current_cmd=CurrentCmd, cmds=Cmds}=State) ->
   case lists:member(Cmd, Cmds) orelse CurrentCmd =:= Cmd of
     true -> 
@@ -166,34 +206,7 @@ handle_event({add_cmd, Cmd}, StateName, #state{host=Host, current_cmd=CurrentCmd
   end;
 handle_event(clean_cmds, StateName, #state{host=Host, cmds=Cmds}=State) ->
   error_logger:info_msg("machine [~p] clean_cmds, discard=~p", [Host, Cmds]),
-  {next_state, StateName, State#state{cmds=[]}};
-handle_event(reconnect, _StateName, #state{host=Host, exec_mod=ExecMod}=State) ->
-  error_logger:info_msg("machine [~p] connect...~n", [Host]),
-  case State#state.cm of
-    undefined -> ok;
-    OldCm -> ExecMod:terminate(OldCm)
-  end,
-  case create_connection_manager(Host, State#state.get_host_info_fun) of
-    {ok, Cm, ExecMod, Params} ->
-      NextState = case proplists:get_value(state, Params) of
-        undefined -> 
-          normal;
-        "disconnected" -> 
-          % 如果machine当前为disconnected state,
-          (responder:machine_on_caller(client))(Host, reset),
-          do_cmd(Host),
-          normal;
-        InnerState -> 
-          list_to_atom(InnerState)
-      end,
-      error_logger:info_msg("machine [~p] state: ~p - ~p~n", [Host, State, NextState]),
-      {next_state, NextState, State#state{cm=Cm, conn_params=Params, exec_mod=ExecMod}};
-    {error, Why} ->
-      error_logger:error_msg("machine [~p] connect error: ~p~n", [Host, Why]),
-      (responder:machine_on_caller(client))(Host, disconnect),
-      %% 连接失败后进程依然保留，以便可以忽略后续指令
-      {next_state, disconnected, State}
-  end.
+  {next_state, StateName, State#state{cmds=[]}}.
 
 handle_sync_event(get_state, _From, StateName, State) ->
   error_logger:info_msg("machine state: ~p - ~p~n", [StateName, State]),
@@ -217,6 +230,8 @@ handle_info({_Pid, not_connected, {error, etimedout}}, StateName, #state{host=Ho
     end,
     Cmds
   ),
+  error_logger:info_msg("machine [~p] connect fail~n", [Host]),
+  (responder:machine_on_caller(client))(Host, disconnect),
   {next_state, StateName, State};
 
 handle_info(Info, StateName, #state{cm=Cm, handler=Handler, datas=Datas, exec_mod=ExecMod}=State) ->
