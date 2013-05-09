@@ -121,9 +121,9 @@ dispatch_cmd(Cmds) ->
   lists:foreach(
     fun({Host, Command, Oid}) ->
         case dispatch(Host, Command, Oid) of
-          ok -> 
-            (responder:cb_caller(puller))(Host, {Command, Oid},{true, "done"});
-          _ -> ok
+          ignore -> done;
+          _ ->
+            (responder:cb_caller(puller))(Host, {Command, Oid},{true, "done"})
         end
     end, Cmds).
 
