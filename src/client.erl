@@ -202,6 +202,23 @@ handle_sync_event(stop, _From, _StateName, #state{host=Host}=State) ->
   error_logger:info_msg("machine [~p] stop.", [Host]),
   {stop, normal, ok, State}.
 
+handle_info({_Pid, not_connected, {error, etimedout}}, StateName, #state{host=Host, current_cmd=CurrentCmd, cmds=Cmds}=State) ->
+  error_logger:error_msg("connect fail: etimedout ~p , all commands will be ignored.", [Host]),
+  case CurrentCmd of
+    undefined -> done;
+    _ -> 
+      error_logger:error_msg("ignored: ~p",[CurrentCmd]),
+      (responder:cb_caller(client))(Host, CurrentCmd, {false, "not connected"})
+  end,
+  lists:foreach(
+    fun(Cmd) -> 
+        error_logger:error_msg("ignored: ~p",[Cmd]),
+        (responder:cb_caller(client))(Host, Cmd, {false, "not connected"})
+    end,
+    Cmds
+  ),
+  {next_state, StateName, State};
+
 handle_info(Info, StateName, #state{cm=Cm, handler=Handler, datas=Datas, exec_mod=ExecMod}=State) ->
   try ExecMod:handle_info(Info, Cm, Handler) of
     {data, Data} ->
