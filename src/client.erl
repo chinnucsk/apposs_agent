@@ -41,9 +41,6 @@ start(Host, GetHostInfoFun) ->
 start_link(Host, GetHostInfoFun) ->
   gen_fsm:start_link({local, ?SERVER(Host)}, ?MODULE, [Host, GetHostInfoFun], []).
 
-stop(Host) ->
-  gen_fsm:sync_send_all_state_event(?SERVER(Host), stop).
-
 check_host(Host) ->
   case erlang:whereis(?SERVER(Host)) of
     undefined -> no_host;
@@ -72,6 +69,10 @@ interrupt(Host) ->
 
 reset(Host) ->
   gen_fsm:send_event(?SERVER(Host), reset).
+
+%% 用于在线观察client状态是否符合需要
+stop(Host) ->
+  gen_fsm:sync_send_all_state_event(?SERVER(Host), stop).
 
 get_state(Host) ->
   gen_fsm:sync_send_all_state_event(?SERVER(Host), get_state).
@@ -190,10 +191,12 @@ handle_event(reconnect, _StateName, #state{host=Host, exec_mod=ExecMod}=State) -
     {error, Why} ->
       error_logger:error_msg("machine [~p] connect error: ~p~n", [Host, Why]),
       (responder:machine_on_caller(client))(Host, disconnect),
+      %% 连接失败后进程依然保留，以便可以忽略后续指令
       {next_state, disconnected, State}
   end.
 
 handle_sync_event(get_state, _From, StateName, State) ->
+  error_logger:info_msg("machine state: ~p - ~p~n", [StateName, State]),
   {reply, StateName, StateName, State};
 handle_sync_event(stop, _From, _StateName, #state{host=Host}=State) ->
   error_logger:info_msg("machine [~p] stop.", [Host]),
