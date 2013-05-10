@@ -1,4 +1,4 @@
--module(http_channel_sup).
+-module(web_sup).
 -behaviour(supervisor).
 -export([start_link/0, start_child/1, init/1]).
 
@@ -11,11 +11,11 @@ start_child(ProfileName) ->
 
 init([]) ->
   ProcessSpec = {
-    webutil,
-    {webutil, start_link, []},
+    web,
+    {web, start_link, []},
     transient,
     2000,
     worker,
-    [webutil]
+    [web]
   },
   {ok,{{simple_one_for_one,10,60}, [ProcessSpec]}}.

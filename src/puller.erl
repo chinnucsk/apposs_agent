@@ -1,9 +1,9 @@
 %% 负责周期性的获取command，并发送给 agent_server
--module(poller).
+-module(puller).
 -behaviour(gen_server).
 -export([start_link/3,init/1,handle_call/3,handle_cast/2,handle_info/2]).
--export([code_change/3,terminate/2]).
--define(POLLER_PID(RoomName), list_to_atom(string:concat("poller:", RoomName))).
+-export([code_change/3,terminate/2,dispatch/3]).
+-define(POLLER_PID(RoomName), list_to_atom(string:concat("puller:", RoomName))).
 
 -ifdef(TEST).
 -compile(export_all).
@@ -13,7 +13,7 @@ start_link(Delay_time, BaseUrl,RoomName) ->
   gen_server:start_link({local, ?POLLER_PID(RoomName)}, ?MODULE, [BaseUrl, RoomName, Delay_time], []).
 
 init([BaseUrl, RoomName, Delay_time]) ->
-  error_logger:info_msg("start poller: ~p - ~p.~n",[BaseUrl,RoomName]),
+  error_logger:info_msg("start puller: ~p - ~p.~n",[BaseUrl,RoomName]),
   gen_server:cast(?POLLER_PID(RoomName), {reload, Delay_time}),
   {ok,[BaseUrl, RoomName]}.
 
@@ -21,18 +21,18 @@ handle_call(_Req, _From, State) ->
   {stop, unknown_req, State}.
 
 handle_cast({reload, Delay_time}, [BaseUrl, RoomName]) ->
-  error_logger:info_msg("poller reload: ~p - ~p.~n",[BaseUrl,RoomName]),
+  error_logger:info_msg("puller reload: ~p - ~p.~n",[BaseUrl,RoomName]),
   %% 检查系统是否有剩余的命令，如果没有，则可能是初次启动，此时应该重新装载所有download和init命令
   Params = [{room_name,RoomName},{reload,true}],
   run(BaseUrl,Params),
   timer:sleep(Delay_time),
-  gen_server:cast(?POLLER_PID(RoomName), {poll, Delay_time}),
+  gen_server:cast(?POLLER_PID(RoomName), {pull, Delay_time}),
   {noreply, [BaseUrl,RoomName]};
-handle_cast({poll, Delay_time}, [BaseUrl,RoomName]) ->
+handle_cast({pull, Delay_time}, [BaseUrl,RoomName]) ->
   Params = [{room_name,RoomName}],
   run(BaseUrl,Params),
   timer:sleep(Delay_time),
-  gen_server:cast(?POLLER_PID(RoomName), {poll, Delay_time}),
+  gen_server:cast(?POLLER_PID(RoomName), {pull, Delay_time}),
   {noreply, [BaseUrl,RoomName]}.
 
 handle_info(_Info, State) ->
@@ -56,14 +56,14 @@ run(BaseUrl, Params)->
 
 get_cmds(BaseUrl, Params) ->
   Url = BaseUrl ++ "/api/commands",
-  case webutil:http_get(poller, Url, Params, 
+  case web:http_get(puller, Url, Params, 
       fun(E) ->
         analyse_cmds(E)
       end
   ) of
     {ok, Cmds} -> Cmds;
     {error, Why} ->
-      error_logger:error_msg("poller get_cmds failed, reqUrl: ~p, Why: ~p~n", [Url, Why]),
+      error_logger:error_msg("puller get_cmds failed, reqUrl: ~p, Why: ~p~n", [Url, Why]),
       []
   end.
 
@@ -89,8 +89,8 @@ analyse_cmds(Cmds) ->
 
 create_clients(BaseUrl, Cmds) ->
   F = fun(Host) ->
-    X = webutil:http_get(
-      poller,
+    X = web:http_get(
+      puller,
       BaseUrl ++ "/api/load_hosts",
       [{hosts, Host}],
       fun
@@ -111,7 +111,7 @@ create_clients(BaseUrl, Cmds) ->
   end,
   lists:foreach(
     fun({Host, _, _}) ->
-      conn_sup:start_child_if_not_exist(Host, F)
+      client_sup:start_child_if_not_exist(Host, F)
     end,
     Cmds
   ). 
@@ -120,5 +120,24 @@ create_clients(BaseUrl, Cmds) ->
 dispatch_cmd(Cmds) ->
   lists:foreach(
     fun({Host, Command, Oid}) ->
-        dispatcher:dispatch(Host, Command, Oid)
+        case dispatch(Host, Command, Oid) of
+          ignore -> done;
+          _ ->
+            (responder:cb_caller(puller))(Host, {Command, Oid},{true, "done"})
+        end
     end, Cmds).
+
+dispatch(Host,"machine|pause", _Oid) ->
+  client:pause(Host);
+dispatch(Host,"machine|reset", _Oid) ->
+  client:reset(Host);
+dispatch(Host,"machine|interrupt", _Oid) ->
+  client:interrupt(Host);
+dispatch(Host,"machine|reconnect", _Oid) ->
+  client:reconnect(Host);
+dispatch(Host,"machine|clean_all", _Oid) ->
+  client:clean_cmds(Host);
+dispatch(Host,Cmd,Oid) ->
+  client:add_cmd(Host, {Cmd, Oid}),
+  ignore.
+

@@ -4,7 +4,7 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/0, start_link/3, stop/0]).
+-export([start_link/0, start_link/2, stop/0]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -21,12 +21,12 @@
 %% ===================================================================
 
 start_link() ->
-  start_link("http://localhost:3000", responder, 5000).
+  start_link("http://localhost:3000", 5000).
 
-start_link(Center_url, Responder_mod, Poll_delay) ->
+start_link(Center_url, Pull_delay) ->
   crypto:start(),
   ssh:start(temporary),
-  supervisor:start_link({local, ?MODULE}, ?MODULE, [Center_url, Responder_mod, Poll_delay]).
+  supervisor:start_link({local, ?MODULE}, ?MODULE, [Center_url, Pull_delay]).
 
 stop() ->
   ChildSpecs = supervisor:which_children(?MODULE),
@@ -45,9 +45,9 @@ stop() ->
 %% Supervisor callbacks
 %% ===================================================================
 
-init([Center_url, Responder_mod, Poll_delay]) ->
-  HttpChannelSup = ?CHILD(http_channel_sup, supervisor, start_link, []),
+init([Center_url, Pull_delay]) ->
+  HttpChannelSup = ?CHILD(web_sup, supervisor, start_link, []),
   Responder = ?CHILD(responder, worker, start_link, [Center_url]),
-  ConnSup = ?CHILD(conn_sup, supervisor, start_link, [Responder_mod]),
-  PollerSup = ?CHILD(poller_sup, supervisor, start_link, [Poll_delay]),
-  {ok, { {one_for_one, 3, 30}, [HttpChannelSup, Responder,ConnSup,PollerSup]} }.
+  ConnSup = ?CHILD(client_sup, supervisor, start_link, []),
+  PullerSup = ?CHILD(puller_sup, supervisor, start_link, [Pull_delay]),
+  {ok, { {one_for_one, 3, 30}, [HttpChannelSup, Responder,ConnSup,PullerSup]} }.

@@ -1,4 +1,4 @@
--module(webutil).
+-module(web).
 -behaviour(gen_server).
 -define(SERVER(ProfileName), list_to_atom(atom_to_list(ProfileName) ++ "@" ++ atom_to_list(?MODULE))).
 -define(DEFAULT_HTTP_OPTIONS, [{connect_timeout, 1000}]).
@@ -107,8 +107,8 @@ try_func(F,N) ->
     X -> X
   end.
 
-http_response(Url, Params, F,{ok, {{_Version, 200, _ReasonPhrase}, _Headers, Body}}) ->
-  error_logger:info_msg("http req: ~p(~p)~nresp: ~p~n", [Url, Params, Body]),
+http_response(_Url, _Params, F,{ok, {{_Version, 200, _ReasonPhrase}, _Headers, Body}}) ->
+  %% error_logger:info_msg("http req: ~p(~p)~nresp: ~p~n", [Url, Params, Body]),
   {ok, F(Body)};
 http_response(Url, Params, _F,{ok, {{_Version, Status, ReasonPhrase}, _Headers, Body}}) ->
   error_logger:error_msg("http fail: ~p(~p) ~p: ~p~nresp: ~p~n",[Url, Params, Status, ReasonPhrase, Body]),

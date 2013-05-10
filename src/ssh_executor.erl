@@ -52,7 +52,7 @@ exec(Conn, {Command, _Oid}) ->
 
 handle_info({ssh_cm, Conn, {data, Chl, Type_code, Data}}, Conn, Chl) ->
   D = binary_to_list(Data), 
-  ?INFO("ssh_cm ~p [~p]: ~ts~n", [Chl, Type_code, D]),
+  ?INFO("ssh_cm ~p [~p]~n", [Chl, Type_code]),
   {data, D};
 handle_info({ssh_cm, Conn, {exit_status, Chl, ExitStatus}}, Conn, Chl) ->
   ?INFO("session ~p exit: ~p.~n",[Chl, ExitStatus]),
