@@ -4,7 +4,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start/2, start_link/2, stop/1, reconnect/1, check_host/1, add_cmd/2, do_cmd/1, clean_cmds/1, pause/1, interrupt/1, reset/1, get_state/1]).
+-export([start/2, start_link/2, stop/1, reconnect/1, check_host/1, add_cmd/2, do_cmd/1, clean_cmds/1, pause/1, interrupt/1, reset/1]).
 
 %% ------------------------------------------------------------------
 %% gen_fsm Function Exports
@@ -73,9 +73,6 @@ reset(Host) ->
 %% 用于在线观察client状态是否符合需要
 stop(Host) ->
   gen_fsm:sync_send_all_state_event(?SERVER(Host), stop).
-
-get_state(Host) ->
-  gen_fsm:sync_send_all_state_event(?SERVER(Host), get_state).
 
 %% ------------------------------------------------------------------
 %% gen_fsm Function Definitions
@@ -208,9 +205,6 @@ handle_event(clean_cmds, StateName, #state{host=Host, cmds=Cmds}=State) ->
   error_logger:info_msg("machine [~p] clean_cmds, discard=~p", [Host, Cmds]),
   {next_state, StateName, State#state{cmds=[]}}.
 
-handle_sync_event(get_state, _From, StateName, State) ->
-  error_logger:info_msg("machine state: ~p - ~p~n", [StateName, State]),
-  {reply, StateName, StateName, State};
 handle_sync_event(stop, _From, _StateName, #state{host=Host}=State) ->
   error_logger:info_msg("machine [~p] stop.", [Host]),
   {stop, normal, ok, State}.
