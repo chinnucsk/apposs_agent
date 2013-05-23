@@ -30,7 +30,7 @@ machine_on_caller(Profile) ->
 handle_call({make_run_caller,Profile}, _From, BaseUrl) ->
   Reply = fun(Host, {_Cmd, OperationId}) -> 
     Url = BaseUrl++"/api/run",
-    error_logger:info_msg("run:[~p,~p] ~p.~n",[Host,OperationId,Url]),
+    error_logger:info_msg("run[~p]: ~p~n",[Host,OperationId]),
     F = fun() ->
       web:http_post(Profile, Url, [{host,Host},{oid,OperationId}])
     end,
@@ -40,7 +40,7 @@ handle_call({make_run_caller,Profile}, _From, BaseUrl) ->
 handle_call({make_cb_caller,Profile}, _From, BaseUrl) ->
   Reply = fun(Host, {_Cmd, OperationId}, {IsOk, Body}) -> 
     Url = BaseUrl++"/api/callback",
-    error_logger:info_msg("callback: ~p.~n",[Url]),
+    error_logger:info_msg("callback[~p] ~p ~p.~n",[Host, OperationId, IsOk]),
     F = fun() ->
       web:http_post(Profile, Url, [
         {isok,atom_to_list(IsOk)},
@@ -54,7 +54,7 @@ handle_call({make_cb_caller,Profile}, _From, BaseUrl) ->
   {reply, Reply, BaseUrl};
 handle_call({make_machine_on_caller,Profile}, _From, BaseUrl) ->
   Reply = fun(Host, Event) ->
-    error_logger:info_msg("make_machine_on_caller: ~p , ~p~n",[Host, Event]),
+    error_logger:info_msg("machine_on[~p]: ~p~n",[Host, Event]),
     F = fun() ->
       web:http_post(Profile, BaseUrl ++ "/api/machine_on", [{host, Host}, {event, Event}])
     end,
