@@ -4,7 +4,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start/2, start_link/2, stop/1, reconnect/1, check_host/1, add_cmd/2, do_cmd/1, clean_cmds/1, pause/1, interrupt/1, reset/1]).
+-export([start/2, start_link/2, stop/1, reconnect/1, check_host/1, add_cmd/2, clean_cmds/1, pause/1, interrupt/1, reset/1]).
 
 %% ------------------------------------------------------------------
 %% gen_fsm Function Exports
@@ -48,15 +48,12 @@ check_host(Host) ->
   end.
 
 reconnect(Host) ->
-  interrupt(Host),
   gen_fsm:send_all_state_event(?SERVER(Host), reconnect),
   reset(Host).
 
 add_cmd(Host, Cmd) ->
   gen_fsm:send_all_state_event(?SERVER(Host), {add_cmd, Cmd}).
 
-do_cmd(Host) ->
-  gen_fsm:send_event(?SERVER(Host), do_cmd).
 
 clean_cmds(Host) ->
   gen_fsm:send_all_state_event(?SERVER(Host), clean_cmds).
@@ -120,7 +117,7 @@ connecting(connect, #state{host=Host, exec_mod=ExecMod}=State) ->
         "disconnected" -> 
           % 如果machine当前为disconnected state,
           (responder:machine_on_caller(client))(Host, reset),
-          do_cmd(Host),
+          gen_fsm:send_event(?SERVER(Host), do_cmd),
           normal;
         "normal" -> normal;
         "paused" -> paused
@@ -175,7 +172,7 @@ run(Event, #state{host=Host}=State) ->
 
 paused(reset, #state{host=Host, current_cmd=undefined}=State) ->
   error_logger:info_msg("machine[~p] get reset when paused.~n", [Host]),
-  do_cmd(Host),
+  gen_fsm:send_event(?SERVER(Host), do_cmd),
   (responder:machine_on_caller(client))(Host, reset),
   {next_state, normal, State};
 % 有可能先运行了耗时长的指令，然后pause，然后马上reset，此时先前的命令还未执行结束，所以应该直接进入run状态
@@ -191,7 +188,6 @@ paused(Event, #state{host=Host}=State) ->
 %    {reply, ok, state_name, State}.
 
 %% handle event响应send all state event，因此用于处理外部用户事件
-%% 任何情况下收到 reconnect 事件，首先设定当前状态为connecting，然后触发connect事件
 handle_event(interrupt, disconnected, #state{host=Host}=State) ->
   error_logger:info_msg("machine[~p] is disconnected, ignore interrupt", [Host]),
   {next_state, disconnected, State};
@@ -210,6 +206,7 @@ handle_event(interrupt, StateName, #state{host=Host, cm=Cm, current_cmd=Cmd, exe
   %% 内部状态是disconnected，但是对于用户来说，只是服务器pause了
   (responder:machine_on_caller(client))(Host, pause),
   {next_state, disconnected, NextState#state{cm=undefined}};
+%% 任何情况下收到 reconnect 事件，首先设定当前状态为connecting，然后触发connect事件
 handle_event(reconnect, StateName, #state{host=Host}=State) ->
   error_logger:info_msg("machine[~p] get reconnect when ~p~n", [Host,StateName]),
   gen_fsm:send_event(?SERVER(Host), connect),
@@ -225,7 +222,7 @@ handle_event({add_cmd, Cmd}, StateName, #state{host=Host, current_cmd=CurrentCmd
     false ->
       New_all_cmds = lists:append(Cmds, [Cmd]),
       error_logger:info_msg("machine[~p] get add_cmd when ~p: cmd=~p, all=~p~n", [Host, StateName, Cmd, New_all_cmds]),
-      do_cmd(Host),
+      gen_fsm:send_event(?SERVER(Host), do_cmd),
       {next_state, StateName, State#state{cmds=New_all_cmds}}
   end;
 handle_event(clean_cmds, StateName, #state{host=Host, cmds=Cmds}=State) ->
@@ -310,7 +307,7 @@ finish_cmd(CurrentState, #state{host=Host, current_cmd=Cmd, cmd_exit_status=Exit
       case IsOk of
         true ->
           error_logger:info_msg("machine[~p] cmd callback true, run -> normal.~n", [Host]),
-          do_cmd(Host),
+          gen_fsm:send_event(?SERVER(Host), do_cmd),
           normal;
         false ->
           error_logger:info_msg("machine[~p] cmd callback false, run -> paused, why=~ts~n", [Host, Msg]),
