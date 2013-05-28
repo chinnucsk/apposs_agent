@@ -88,14 +88,18 @@ init([Host, GetHostInfoFun]) ->
   gen_fsm:send_event(?SERVER(Host), connect),
   {ok, connecting, State, 10000}.
 
+disconnected(reset, #state{host=Host}=State) ->
+  error_logger:info_msg("machine[~p] get reset when disconnected~n", [Host]),
+  gen_fsm:send_event(?SERVER(Host), connect),
+  {next_state, connecting, State};
 disconnected(Event, #state{host=Host}=State) ->
   error_logger:info_msg("machine[~p] disconnected, ignore ~p~n", [Host, Event]),
   {next_state, disconnected, State}.
 
 connecting(reset, #state{host=Host}=State) ->
-  error_logger:info_msg("machine[~p] get reset when connecting, it will be resend now~n", [Host]),
+  error_logger:info_msg("machine[~p] get reset when connecting, it will be resend~n", [Host]),
   gen_fsm:send_event(?SERVER(Host), reset),
-  {next_state, connecting, State};
+  {next_state, connecting, State, 10000};
 connecting(timeout, #state{host=Host, exec_mod=ExecMod, cmds=Cmds, cm=Cm}=State) ->
   error_logger:info_msg("machine[~p] connecting timeout: cmds=~p~n", [Host, Cmds]),
   recover:save(?SERVER(Host), Cmds),
@@ -123,7 +127,7 @@ connecting(connect, #state{host=Host, exec_mod=ExecMod}=State) ->
 %%        InnerState -> 
 %%          list_to_atom(InnerState)
       end,
-      error_logger:info_msg("machine[~p] change state: ~p -> ~p~n", [Host, State, NextState]),
+      error_logger:info_msg("machine[~p] change state: connecting -> ~p: ~p~n", [Host, NextState, State]),
       {next_state, NextState, State#state{cm=Cm, conn_params=Params, exec_mod=ExecMod}};
     {error, Why} ->
       case Why of
@@ -188,17 +192,24 @@ paused(Event, #state{host=Host}=State) ->
 
 %% handle event响应send all state event，因此用于处理外部用户事件
 %% 任何情况下收到 reconnect 事件，首先设定当前状态为connecting，然后触发connect事件
-handle_event(interrupt, StateName, #state{host=Host, cm=Cm, current_cmd=Cmd, exec_mod=ExecMod, datas=Datas, conn_params=ConnParams}=State) ->
+handle_event(interrupt, disconnected, #state{host=Host}=State) ->
+  error_logger:info_msg("machine[~p] is disconnected, ignore interrupt", [Host]),
+  {next_state, disconnected, State};
+handle_event(interrupt, connecting, #state{host=Host}=State) ->
+  error_logger:info_msg("machine[~p] is connecting, ignore interrupt", [Host]),
+  {next_state, connecting, State};
+handle_event(interrupt, StateName, #state{host=Host, cm=Cm, current_cmd=Cmd, exec_mod=ExecMod, datas=Datas}=State) ->
   error_logger:info_msg("machine[~p] get interrupt when ~p~n", [Host,StateName]),
-  case StateName of
-    normal -> NextState = State;
+  ExecMod:terminate(Cm),
+  case Cmd of
+    undefined -> 
+      NextState = State;
     _ -> 
-      ExecMod:terminate(Cm),
-      {ok, NewCm} = ExecMod:conn_manager(Host, ConnParams),
-      {paused, NextState} = finish_cmd(run, State#state{cmd_exit_status=1, datas=["User interrupt." | Datas]})
+      {_, NextState} = finish_cmd(disconnected, State#state{cmd_exit_status=1, datas=["User interrupt." | Datas]})
   end,
+  %% 内部状态是disconnected，但是对于用户来说，只是服务器pause了
   (responder:machine_on_caller(client))(Host, pause),
-  {next_state, paused, State};
+  {next_state, disconnected, NextState#state{cm=undefined}};
 handle_event(reconnect, StateName, #state{host=Host}=State) ->
   error_logger:info_msg("machine[~p] get reconnect when ~p~n", [Host,StateName]),
   gen_fsm:send_event(?SERVER(Host), connect),
@@ -295,9 +306,6 @@ finish_cmd(CurrentState, #state{host=Host, current_cmd=Cmd, cmd_exit_status=Exit
   error_logger:info_msg("machine[~p] cmd callback, cmd=~p, result={~p, ~ts}~n", [Host, Cmd, IsOk, Msg]),
   (responder:cb_caller(client))(Host, Cmd, {IsOk, string:sub_string(Msg,1,51200)}), %% max body size: 51200
   NextState = case CurrentState of
-    paused ->
-      error_logger:info_msg("machine[~p] cmd callback, paused -> paused.~n", [Host]),
-      paused;
     run ->
       case IsOk of
         true ->
@@ -308,7 +316,9 @@ finish_cmd(CurrentState, #state{host=Host, current_cmd=Cmd, cmd_exit_status=Exit
           error_logger:info_msg("machine[~p] cmd callback false, run -> paused, why=~ts~n", [Host, Msg]),
           paused
       end;
-    disconnected -> disconnected
+    _ -> 
+      error_logger:info_msg("machine[~p] cmd callback, state: ~p.~n", [Host,CurrentState]),
+      CurrentState
   end,
   {NextState, State#state{handler=undefined, current_cmd=undefined, datas=[], cmd_exit_status=undefined}}.
 
