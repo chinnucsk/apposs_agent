@@ -65,7 +65,7 @@ pause(Host) ->
   gen_fsm:send_event(?SERVER(Host), pause).
 
 interrupt(Host) ->
-  gen_fsm:send_event(?SERVER(Host), interrupt).
+  gen_fsm:send_all_state_event(?SERVER(Host), interrupt).
 
 reset(Host) ->
   gen_fsm:send_event(?SERVER(Host), reset).
@@ -151,10 +151,6 @@ normal(pause, #state{host=Host}=State) ->
   error_logger:info_msg("machine[~p] get pause when normal.~n", [Host]),
   (responder:machine_on_caller(client))(Host, pause),
   {next_state, paused, State};
-normal(interrupt, #state{host=Host}=State) ->
-  error_logger:info_msg("machine[~p] get interrupt when normal~n", [Host]),
-  (responder:machine_on_caller(client))(Host, pause),
-  {next_state, paused, State};
 normal(Event, #state{host=Host}=State) ->
   error_logger:info_msg("machine[~p] is normal state, ignore ~p~n", [Host, Event]),
   {next_state, normal, State}.
@@ -165,13 +161,6 @@ run(timeout, #state{host=Host, exec_mod=ExecMod, cmds=Cmds, cm=Cm}=State) ->
   ExecMod:terminate(Cm),
   (responder:machine_on_caller(client))(Host, disconnect),
   {next_state, disconnected, State};
-run(interrupt, #state{host=Host, cm=Cm, current_cmd=Cmd, exec_mod=ExecMod, datas=Datas, conn_params=ConnParams}=State) ->
-  error_logger:info_msg("machine[~p] get interrupt when run, current_cmd=~p.~n", [Host, Cmd]),
-  ExecMod:terminate(Cm),
-  {ok, NewCm} = ExecMod:conn_manager(Host, ConnParams),
-  {paused, TempState} = finish_cmd(run, State#state{cmd_exit_status=1, datas=["User interrupt." | Datas]}),
-  (responder:machine_on_caller(client))(Host, pause),
-  {next_state, paused, TempState#state{cm=NewCm}};
 run(pause, #state{host=Host}=State) ->
   error_logger:info_msg("machine[~p] get pause when run~n", [Host]),
   (responder:machine_on_caller(client))(Host, pause),
@@ -190,13 +179,6 @@ paused(reset, #state{host=Host, current_cmd=Cmd}=State) ->
   error_logger:info_msg("machine[~p] get reset when paused: current_cmd=~p~n", [Host, Cmd]),
   (responder:machine_on_caller(client))(Host, reset),
   {next_state, run, State};
-paused(interrupt, #state{host=Host, cm=Cm, current_cmd=Cmd, exec_mod=ExecMod, datas=Datas, conn_params=ConnParams}=State) when Cmd /= undefined ->
-  error_logger:info_msg("machine[~p] get interrupt when paused: current_cmd=~p~n", [Host, Cmd]),
-  ExecMod:terminate(Cm),
-  {ok, NewCm} = ExecMod:conn_manager(Host, ConnParams),
-  {paused, TempState} = finish_cmd(run, State#state{cmd_exit_status=1, datas=["User interrupt." | Datas]}),
-  (responder:machine_on_caller(client))(Host, pause),
-  {next_state, paused, TempState#state{cm=NewCm}};
 paused(Event, #state{host=Host}=State) ->
   error_logger:info_msg("machine[~p] is paused state, ignore ~p~n", [Host, Event]),
   {next_state, paused, State}.
@@ -204,6 +186,19 @@ paused(Event, #state{host=Host}=State) ->
 %state_name(_Event, _From, State) ->
 %    {reply, ok, state_name, State}.
 
+%% handle event响应send all state event，因此用于处理外部用户事件
+%% 任何情况下收到 reconnect 事件，首先设定当前状态为connecting，然后触发connect事件
+handle_event(interrupt, StateName, #state{host=Host, cm=Cm, current_cmd=Cmd, exec_mod=ExecMod, datas=Datas, conn_params=ConnParams}=State) ->
+  error_logger:info_msg("machine[~p] get interrupt when ~p~n", [Host,StateName]),
+  case StateName of
+    normal -> NextState = State;
+    _ -> 
+      ExecMod:terminate(Cm),
+      {ok, NewCm} = ExecMod:conn_manager(Host, ConnParams),
+      {paused, NextState} = finish_cmd(run, State#state{cmd_exit_status=1, datas=["User interrupt." | Datas]})
+  end,
+  (responder:machine_on_caller(client))(Host, pause),
+  {next_state, paused, State};
 handle_event(reconnect, StateName, #state{host=Host}=State) ->
   error_logger:info_msg("machine[~p] get reconnect when ~p~n", [Host,StateName]),
   gen_fsm:send_event(?SERVER(Host), connect),
