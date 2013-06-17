@@ -9,7 +9,7 @@ start_child_if_not_exist(Host, GetHostInfoFun) ->
   case client:check_host(Host) of
     no_host -> 
       supervisor:start_child(?MODULE, [Host, GetHostInfoFun]);
-    ok -> ok
+    _ -> ok
   end.
 
 init([]) ->

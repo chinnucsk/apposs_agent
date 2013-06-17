@@ -44,7 +44,7 @@ start_link(Host, GetHostInfoFun) ->
 check_host(Host) ->
   case erlang:whereis(?SERVER(Host)) of
     undefined -> no_host;
-    _Pid -> ok
+    Pid -> Pid
   end.
 
 reconnect(Host) ->
