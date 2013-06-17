@@ -48,26 +48,23 @@ check_host(Host) ->
   end.
 
 reconnect(Host) ->
-  gen_fsm:send_all_state_event(?SERVER(Host), reconnect),
-  reset(Host).
-
-add_cmd(Host, Cmd) ->
-  gen_fsm:send_all_state_event(?SERVER(Host), {add_cmd, Cmd}).
-
-
-clean_cmds(Host) ->
-  gen_fsm:send_all_state_event(?SERVER(Host), clean_cmds).
-
-pause(Host) ->
-  gen_fsm:send_event(?SERVER(Host), pause).
+  gen_fsm:send_all_state_event(?SERVER(Host), reconnect).
 
 interrupt(Host) ->
   gen_fsm:send_all_state_event(?SERVER(Host), interrupt).
 
-reset(Host) ->
-  gen_fsm:send_event(?SERVER(Host), reset).
+pause(Host) ->
+  gen_fsm:send_all_state_event(?SERVER(Host), pause).
 
-%% 用于在线观察client状态是否符合需要
+reset(Host) ->
+  gen_fsm:send_all_state_event(?SERVER(Host), reset).
+
+add_cmd(Host, Cmd) ->
+  gen_fsm:send_all_state_event(?SERVER(Host), {add_cmd, Cmd}).
+
+clean_cmds(Host) ->
+  gen_fsm:send_all_state_event(?SERVER(Host), clean_cmds).
+
 stop(Host) ->
   gen_fsm:sync_send_all_state_event(?SERVER(Host), stop).
 
@@ -85,18 +82,6 @@ init([Host, GetHostInfoFun]) ->
   gen_fsm:send_event(?SERVER(Host), connect),
   {ok, connecting, State, 10000}.
 
-disconnected(reset, #state{host=Host}=State) ->
-  error_logger:info_msg("machine[~p] get reset when disconnected~n", [Host]),
-  gen_fsm:send_event(?SERVER(Host), connect),
-  {next_state, connecting, State};
-disconnected(Event, #state{host=Host}=State) ->
-  error_logger:info_msg("machine[~p] disconnected, ignore ~p~n", [Host, Event]),
-  {next_state, disconnected, State}.
-
-connecting(reset, #state{host=Host}=State) ->
-  error_logger:info_msg("machine[~p] get reset when connecting, it will be resend~n", [Host]),
-  gen_fsm:send_event(?SERVER(Host), reset),
-  {next_state, connecting, State, 10000};
 connecting(timeout, #state{host=Host, exec_mod=ExecMod, cmds=Cmds, cm=Cm}=State) ->
   error_logger:info_msg("machine[~p] connecting timeout: cmds=~p~n", [Host, Cmds]),
   recover:save(?SERVER(Host), Cmds),
@@ -111,30 +96,14 @@ connecting(connect, #state{host=Host, exec_mod=ExecMod}=State) ->
   end,
   case create_connection_manager(Host, State#state.get_host_info_fun) of
     {ok, Cm, ExecMod, Params} ->
-      NextState = case proplists:get_value(state, Params) of
-        undefined -> 
-          normal;
-        "disconnected" -> 
-          % 如果machine当前为disconnected state,
-          (responder:machine_on_caller(client))(Host, reset),
-          gen_fsm:send_event(?SERVER(Host), do_cmd),
-          normal;
-        "normal" -> normal;
-        "paused" -> paused
-%%        InnerState -> 
-%%          list_to_atom(InnerState)
-      end,
-      error_logger:info_msg("machine[~p] change state: connecting -> ~p: ~p~n", [Host, NextState, State]),
-      {next_state, NextState, State#state{cm=Cm, conn_params=Params, exec_mod=ExecMod}};
+      %% 成功连接的机器统一发送reset
+      (responder:machine_on_caller(client))(Host, reset),
+      gen_fsm:send_event(?SERVER(Host), do_cmd),
+      error_logger:info_msg("machine[~p] change state: connecting -> normal: ~p~n", [Host, State]),
+      {next_state, normal, State#state{cm=Cm, conn_params=Params, exec_mod=ExecMod}};
     {error, Why} ->
-      case Why of
-        timeout ->
-          error_logger:error_msg("machine[~p] connect timeout~n", [Host]);
-        enetunreach ->
-          error_logger:error_msg("machine[~p] connect fail: enetunreach~n", [Host]);
-        _ -> 
-          error_logger:error_msg("machine[~p] connect unknown error: ~p~n", [Host, Why])
-      end,
+      %% 连接失败的机器统一反馈disconnect
+      error_logger:error_msg("machine[~p] connect fail: ~p~n", [Host,Why]),
       (responder:machine_on_caller(client))(Host, disconnect),
       %% 连接失败后进程依然保留，以便可以忽略后续指令
       {next_state, disconnected, State}
@@ -148,10 +117,6 @@ normal(do_cmd, #state{host=Host, cm=Cm, cmds=[Cmd|T_cmds], exec_mod=ExecMod}=Sta
   (responder:run_caller(client))(Host, Cmd),
   Handler = ExecMod:exec(Cm, Cmd),
   {next_state, run, State#state{current_cmd=Cmd, cmds=T_cmds, handler=Handler}};
-normal(pause, #state{host=Host}=State) ->
-  error_logger:info_msg("machine[~p] get pause when normal.~n", [Host]),
-  (responder:machine_on_caller(client))(Host, pause),
-  {next_state, paused, State};
 normal(Event, #state{host=Host}=State) ->
   error_logger:info_msg("machine[~p] is normal state, ignore ~p~n", [Host, Event]),
   {next_state, normal, State}.
@@ -162,68 +127,95 @@ run(timeout, #state{host=Host, exec_mod=ExecMod, cmds=Cmds, cm=Cm}=State) ->
   ExecMod:terminate(Cm),
   (responder:machine_on_caller(client))(Host, disconnect),
   {next_state, disconnected, State};
-run(pause, #state{host=Host}=State) ->
-  error_logger:info_msg("machine[~p] get pause when run~n", [Host]),
-  (responder:machine_on_caller(client))(Host, pause),
-  {next_state, paused, State};
 run(Event, #state{host=Host}=State) ->
   error_logger:info_msg("machine[~p] is run state, ignore ~p~n", [Host, Event]),
   {next_state, run, State}.
 
-paused(reset, #state{host=Host, current_cmd=undefined}=State) ->
-  error_logger:info_msg("machine[~p] get reset when paused.~n", [Host]),
-  gen_fsm:send_event(?SERVER(Host), do_cmd),
-  (responder:machine_on_caller(client))(Host, reset),
-  {next_state, normal, State};
-% 有可能先运行了耗时长的指令，然后pause，然后马上reset，此时先前的命令还未执行结束，所以应该直接进入run状态
-paused(reset, #state{host=Host, current_cmd=Cmd}=State) ->
-  error_logger:info_msg("machine[~p] get reset when paused: current_cmd=~p~n", [Host, Cmd]),
-  (responder:machine_on_caller(client))(Host, reset),
-  {next_state, run, State};
 paused(Event, #state{host=Host}=State) ->
   error_logger:info_msg("machine[~p] is paused state, ignore ~p~n", [Host, Event]),
   {next_state, paused, State}.
 
-%state_name(_Event, _From, State) ->
-%    {reply, ok, state_name, State}.
+disconnected(Event, #state{host=Host}=State) ->
+  error_logger:info_msg("machine[~p] disconnected, ignore ~p~n", [Host, Event]),
+  {next_state, disconnected, State}.
+
 
 %% handle event响应send all state event，因此用于处理外部用户事件
-handle_event(interrupt, disconnected, #state{host=Host}=State) ->
-  error_logger:info_msg("machine[~p] is disconnected, ignore interrupt", [Host]),
-  {next_state, disconnected, State};
-handle_event(interrupt, connecting, #state{host=Host}=State) ->
-  error_logger:info_msg("machine[~p] is connecting, ignore interrupt", [Host]),
-  {next_state, connecting, State};
 handle_event(interrupt, StateName, #state{host=Host, cm=Cm, current_cmd=Cmd, exec_mod=ExecMod, datas=Datas}=State) ->
-  error_logger:info_msg("machine[~p] get interrupt when ~p~n", [Host,StateName]),
-  ExecMod:terminate(Cm),
-  case Cmd of
-    undefined -> 
-      NextState = State;
+  case StateName of
+    disconnected -> 
+      error_logger:info_msg("machine[~p] is disconnected, ignore interrupt", [Host]),
+      {next_state, disconnected, State};
+    connecting ->
+      error_logger:info_msg("machine[~p] is connecting, ignore interrupt", [Host]),
+      {next_state, connecting, State};
     _ -> 
-      {_, NextState} = finish_cmd(disconnected, State#state{cmd_exit_status=1, datas=["User interrupt." | Datas]})
-  end,
-  %% 内部状态是disconnected，但是对于用户来说，只是服务器pause了
-  (responder:machine_on_caller(client))(Host, pause),
-  {next_state, disconnected, NextState#state{cm=undefined}};
+      error_logger:info_msg("machine[~p] get interrupt when ~p~n", [Host,StateName]),
+      ExecMod:terminate(Cm),
+      case Cmd of
+        undefined -> 
+          NextState = State;
+        _ -> 
+          {_, NextState} = finish_cmd(disconnected, State#state{cmd_exit_status=1, datas=["User interrupt." | Datas]})
+      end,
+      %% 为了便于查找问题，需要忠实反馈每一个disconnect状态
+      (responder:machine_on_caller(client))(Host, disconnect),
+      {next_state, disconnected, NextState#state{cm=undefined}}
+  end;
 %% 任何情况下收到 reconnect 事件，首先设定当前状态为connecting，然后触发connect事件
 handle_event(reconnect, StateName, #state{host=Host}=State) ->
   error_logger:info_msg("machine[~p] get reconnect when ~p~n", [Host,StateName]),
   gen_fsm:send_event(?SERVER(Host), connect),
   {next_state, connecting, State, 10000};
-handle_event({add_cmd, Cmd}, disconnected, #state{host=Host}=State) ->
-  error_logger:info_msg("machine[~p] disconnected, ignore add", [Host]),
-  (responder:cb_caller(client))(Host, Cmd, {false, "not connected"}),
-  {next_state, disconnected, State};
+handle_event(pause, StateName, #state{host=Host}=State) ->
+  error_logger:info_msg("machine[~p] get pause when ~p.~n", [Host,StateName]),
+  case StateName of
+    normal -> 
+      (responder:machine_on_caller(client))(Host, pause),
+      {next_state, paused, State};
+    _ -> 
+      error_logger:info_msg("machine[~p] is ~p state, ignore pause~n", [Host, StateName]),
+      {next_state, StateName, State}
+  end;
+handle_event(reset, StateName, #state{host=Host, current_cmd=Cmd}=State) ->
+  case StateName of
+    disconnected ->
+      error_logger:info_msg("machine[~p] get reset when disconnected, it will be reconnect~n", [Host]),
+      gen_fsm:send_event(?SERVER(Host), connect),
+      {next_state, connecting, State};
+    paused ->
+      case Cmd of
+        undefined -> 
+          error_logger:info_msg("machine[~p] get reset when paused.~n", [Host]),
+          gen_fsm:send_event(?SERVER(Host), do_cmd),
+          (responder:machine_on_caller(client))(Host, reset),
+          {next_state, normal, State};
+        % 有可能先运行了耗时长的指令，然后pause并马上reset，此时先前的命令还未执行结束，所以应该直接进入run状态
+        _ ->
+          error_logger:info_msg("machine[~p] get reset when paused: current_cmd=~p~n", [Host, Cmd]),
+          (responder:machine_on_caller(client))(Host, reset),
+          {next_state, run, State}
+      end;
+    _ -> 
+      error_logger:info_msg("machine[~p] is ~p, ignore reset~n", [Host, StateName]),
+      {next_state, StateName, State}
+  end;
 handle_event({add_cmd, Cmd}, StateName, #state{host=Host, current_cmd=CurrentCmd, cmds=Cmds}=State) ->
-  case lists:member(Cmd, Cmds) orelse CurrentCmd =:= Cmd of
-    true -> 
-      {next_state, StateName, State};
-    false ->
-      New_all_cmds = lists:append(Cmds, [Cmd]),
-      error_logger:info_msg("machine[~p] get add_cmd when ~p: cmd=~p, all=~p~n", [Host, StateName, Cmd, New_all_cmds]),
-      gen_fsm:send_event(?SERVER(Host), do_cmd),
-      {next_state, StateName, State#state{cmds=New_all_cmds}}
+  case StateName of
+    disconnected -> 
+      error_logger:info_msg("machine[~p] disconnected, ignore add", [Host]),
+      (responder:cb_caller(client))(Host, Cmd, {false, "not connected, please reconnect or call administrator"}),
+      {next_state, disconnected, State};
+    _ -> 
+      case lists:member(Cmd, Cmds) orelse CurrentCmd =:= Cmd of
+        true -> 
+          {next_state, StateName, State};
+        false ->
+          New_all_cmds = lists:append(Cmds, [Cmd]),
+          error_logger:info_msg("machine[~p] get add_cmd when ~p: cmd=~p, all=~p~n", [Host, StateName, Cmd, New_all_cmds]),
+          gen_fsm:send_event(?SERVER(Host), do_cmd),
+          {next_state, StateName, State#state{cmds=New_all_cmds}}
+      end
   end;
 handle_event(clean_cmds, StateName, #state{host=Host, cmds=Cmds}=State) ->
   error_logger:info_msg("machine[~p] get clean_cmds when ~p, discard=~p", [Host, StateName, Cmds]),
